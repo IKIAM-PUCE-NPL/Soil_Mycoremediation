@@ -1,0 +1,144 @@
+---
+title: "GC-MS of soil before and after mycoremediation"
+author: "Isabel Cipriani, Jefferson Pastuña"
+date: "2023-11-20"
+output:
+  github_document:
+    toc: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+usethis::git_vaccinate()
+```
+
+## Introduction
+
+The present document aims to record the procedure given for the statistical analysis of secondary metabolites present in the different soil sample. For each step a brief explanation, the code and graphics obtained are included.
+
+The workflow used is taken from the paper ["notame": Workflow for Non-Targeted LC–MS Metabolic Profiling](https://doi.org/10.3390/metabo10040135). Which offers a wide variety of functions to perform metabolomic profile analysis.
+
+## Before to start
+
+The "notame" package accepts as input a feature table that can be obtained through software such as MZMine, MSDial, among others. In this case, the feature table was obtained with the help of GNPS by MSHub algorithm. The (*.csv) file (downloaded from GNPS job [ID=838e81abada84d709557cf3bb1e16fba](http://838e81abada84d709557cf3bb1e16fba/)) was slightly modified to obtain the final feature table to notame R package.
+
+Modifications made to the raw (*.csv) file can be summarized in adding and renaming columns. The added columns "Column" and "Ion Mode" allow to analyze samples with different types of columns and with different ionization modes respectively. Also, the cells corresponding to mass and retention time must be renamed so that the package can detect and process it.
+
+## Notame workflow
+
+As a first step for the analysis, all the necessary libraries were installed and loaded.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, error=FALSE, results='hide'}
+
+library(notame)
+library(Biobase)
+library(BiocGenerics)
+library(futile.logger)
+library(ggplot2)
+library(magrittr)
+library(foreach)
+library(iterators)
+library(parallel)
+library(doParallel)
+library(pcaMethods)
+library(patchwork)
+library(cowplot)
+library(Rtsne)
+library(ggdendro)
+library(dplyr)
+library(readxl)
+library(ggsci)
+library(missForest)
+
+```
+
+Then, a project path and a log system was added to have a record of each process executed.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, error=FALSE}
+
+ppath <- "C:/Users/F4ss0/Documents/Ikiam21062022/Soil_Mycoremediation/"
+init_log(log_file = paste0(ppath, "Result/log.txt"))
+
+```
+
+Next, the feature list was imported.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, error=FALSE, results='hide'}
+
+data <- read_from_excel(file = "Data/GCMS_soil_to_R.xlsx", sheet = 2, 
+                        corner_row = 4, corner_column = "G", 
+                        split_by = c("Column", "Ion Mode"))
+
+```
+
+Once the data was read, the next step was to create a MetaboSet in order to create a specific R object.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, error=FALSE, results='hide'}
+
+modes <- construct_metabosets(exprs = data$exprs, 
+                              pheno_data = data$pheno_data, 
+                              feature_data = data$feature_data,
+                              group_col = "Group")
+
+```
+
+Finally, each mode was extracted in a single object.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, error=FALSE, results='hide'}
+
+mode <- modes$PREGUNTAR_EI
+
+```
+
+As a additional step, we can visualize the raw data in order to inspect the processing routines.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, error=FALSE, results='hide'}
+
+# Data extraction of all dataset
+test_mode <- modes$PREGUNTAR_EI
+# Boxplot and PCA
+test_sambx <- plot_sample_boxplots(test_mode)
+test_pca <- plot_pca(test_mode)
+test_pca + test_sambx
+
+```
+
+## Preprocessing
+
+The first step of the preprocessing is to change the features with value equal to 0 to NA.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, error=FALSE, results='hide'}
+
+mode <- mark_nas(mode, value = 0)
+
+```
+
+Contaminant peaks based on the process blank will be removed.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, error=FALSE, results='hide'}
+
+# Removal of contaminants
+mode_flag_blank <- flag_contaminants(mode,
+                                        blank_col = "Group",
+                                        blank_label = "Blank",
+                                        flag_thresh = 0.50,
+                                        flag_label = "Contaminant")
+# Export to Excel (data with blank flag)
+write_to_excel(mode_flag_blank, "Result/Blank_Flag.xlsx")
+# Removal blank group from dataset
+no_group_blank <- mode_flag_blank[, mode_flag_blank$Group != "Blank"]
+# Removal blank features
+no_group_blank <- drop_flagged(no_group_blank)
+# Export to Excel (data without blank flag)
+write_to_excel(no_group_blank, "Result/Without_Blank.xlsx")
+
+```
+
+Finish a record.
+
+```{r}
+
+finish_log()
+
+```
